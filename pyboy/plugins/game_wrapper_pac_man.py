@@ -55,27 +55,32 @@ dead_7 = [12,13,28,29]
 dead_8 = [14,15,30,31]
 dead_poof = [32,33,48,49]
 
-pacman_neutral = [left_facing_neutral+right_facing_neutral+up_facing_neutral+down_facing_neutral]
-pacman_open = [left_facing_open+right_facing_open+up_facing_open+down_facing_open]
-pacman_closed = [left_facing_closed+right_facing_closed+up_facing_closed+down_facing_closed]
-pacman_alive = [pacman_neutral+pacman_open+pacman_closed]
+pacman_neutral = left_facing_neutral+right_facing_neutral+up_facing_neutral+down_facing_neutral
+pacman_open = left_facing_open+right_facing_open+up_facing_open+down_facing_open
+pacman_closed = left_facing_closed+right_facing_closed+up_facing_closed+down_facing_closed
+pacman_alive = pacman_neutral+pacman_open+pacman_closed
 
-pacman_dead = [dead_1+dead_2+dead_3+dead_4+dead_5+dead_6+dead_7+dead_8+dead_poof]
+pacman_dead = dead_1+dead_2+dead_3+dead_4+dead_5+dead_6+dead_7+dead_8+dead_poof
 
 # Ghosts
-left_looking_ghost = [104, 105, 120, 121]
-right_looking_ghost = [105, 104, 121, 120] # right facing is left facing mirrored, one of the sprite attributes
-up_looking_ghost = [100, 101, 116, 117]
-down_looking_ghost = [96, 97, 112, 113]
-scared_ghost = [108, 109, 124, 125]
+left_looking_ghost_1 = [104, 105, 120, 121]
+left_looking_ghost_2 = [106, 107, 122, 123]
+right_looking_ghost_1 = [105, 104, 120, 121] # right facing is left facing mirrored, one of the sprite attributes
+right_looking_ghost_2 = [107, 106, 122, 123] # right facing is left facing mirrored, one of the sprite attributes
+up_looking_ghost_1 = [100, 101, 116, 117]
+up_looking_ghost_2 = [102, 103, 118, 119]
+down_looking_ghost_1 = [96, 97, 112, 113]
+down_looking_ghost_2 = [98, 99, 114, 115]
+scared_ghost_1 = [108, 109, 124, 125]
+scared_ghost_2 = [110, 111, 126, 127]
 left_looking_ghost_eyes = [44, 45, 54, 55]
 right_looking_ghost_eyes = [45, 44, 55, 54] # right facing is left facing mirrored, one of the sprite attributes
 up_looking_ghost_eyes = [42, 43]
 down_looking_ghost_eyes = [40, 41, 50, 51]
 
-ghosts_danger = [left_looking_ghost+right_looking_ghost+up_looking_ghost+down_looking_ghost]
-ghosts_scared = [scared_ghost]
-ghosts_eyes = [left_looking_ghost_eyes+right_looking_ghost_eyes+up_looking_ghost_eyes+down_looking_ghost_eyes]
+ghosts_danger = left_looking_ghost_1+left_looking_ghost_2+right_looking_ghost_1+right_looking_ghost_2+up_looking_ghost_1+up_looking_ghost_2+down_looking_ghost_1+down_looking_ghost_2
+ghosts_scared = scared_ghost_1+scared_ghost_2
+ghosts_eyes = left_looking_ghost_eyes+right_looking_ghost_eyes+up_looking_ghost_eyes+down_looking_ghost_eyes
 
 
 
@@ -83,12 +88,12 @@ ghosts_eyes = [left_looking_ghost_eyes+right_looking_ghost_eyes+up_looking_ghost
 pellet = [260, 262]
 power_pellet = [261]
 
-pellets = [pellet+power_pellet]
+pellets =pellet+power_pellet
 
 # Fruit 
 fruit = [70, 71, 86, 87] # Each new level loads a new fruit tile to the same tile identifier
 
-consumables = [pellet+power_pellet+fruit]
+consumables = pellet+power_pellet+fruit
 
 
 # Wall 
@@ -211,19 +216,33 @@ class GameWrapperPacMan(PyBoyGameWrapper):
     def __init__(self, *args, **kwargs):
         self.shape = (20, 18) # 160x144
         """The shape of the game area"""
+
         self.level = 0
         """The current level"""
+
         self.lives_left = 2
         """The number of lives Pac Man has left"""
+
         self.score = 0
         """The score provided by the game"""
+
         self.high_score = 0
         """The high score provided by the game"""
+        
+        self.num_pellets_left = 0
+        """The number of pellets left in the level"""
+
+        self.pacman_pos = (0,0)
+        """Pacman's position in the game area"""
+
+        self.ghosts_pos = [(0,0), (0,0), (0,0), (0,0)]
+        """The positions of the ghosts in the game area"""
+
         self.fitness = 0
         """
-        A built-in fitness scoring. Taking points, level progression, time left, and lives left into account.
+        A built-in fitness scoring. Taking score, high score, level, number of pellets left, and lives left into account.
 
-        .. math::
+        .. math:: TBD
             fitness = (lives\\_left \\cdot 10000) + (score + time\\_left \\cdot 10) + (\\_level\\_progress\\_max \\cdot 10)
         """
 
@@ -236,24 +255,29 @@ class GameWrapperPacMan(PyBoyGameWrapper):
         level_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*level_loc[::-1]) for level_loc in LEVELS if self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*level_loc[::-1])!=320]
         self.level = len(level_identifiers)
 
+        lives_left_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*lives_loc[::-1]) for lives_loc in [TWO_LIVES_LEFT, ONE_LIFE_LEFT] if self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*lives_loc[::-1])!=320]
+        self.lives_left = len(lives_left_identifiers) 
+
         score_place_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*score_loc[::-1]) for score_loc in CURRENT_SCORE_PLACES[::-1]]
 
         self.score = np.sum(np.array([score_identifier_map[ti] for ti in score_place_identifiers])*[10000, 1000, 100, 10, 1])*10
 
-        self.coins = self._sum_number_on_screen(9, 1, 2, blank, -256)
-        self.lives_left = _bcm_to_dec(self.pyboy.get_memory_value(ADDR_LIVES_LEFT))
-        self.score = self._sum_number_on_screen(0, 1, 6, blank, -256)
-        self.time_left = self._sum_number_on_screen(17, 1, 3, blank, -256)
+        high_score_place_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*score_loc[::-1]) for score_loc in HIGH_SCORE_PLACES[::-1]]
 
-        level_block = self.pyboy.get_memory_value(0xC0AB)
-        mario_x = self.pyboy.get_memory_value(0xC202)
-        scx = self.pyboy.botsupport_manager().screen().tilemap_position_list()[16][0]
-        self.level_progress = level_block*16 + (scx-7) % 16 + mario_x
+        self.high_score = np.sum(np.array([score_identifier_map[ti] for ti in high_score_place_identifiers])*[10000, 1000, 100, 10, 1])*10
+
+        pellet_locations = self.pyboy.botsupport_manager().tilemap_background().search_for_identifiers(pellet)
+        self.num_pellets_left = len(pellet_locations[0])+len(pellet_locations[1])
+
+        pacman_sprite_ids = set([x[0] for x in self.pyboy.botsupport_manager().sprite_by_tile_identifier(pacman_alive) if len(x)>0])
+        pacman_locs = [(self.pyboy.botsupport_manager().sprite(sprite_id).x, self.pyboy.botsupport_manager().sprite(sprite_id).y) for sprite_id in pacman_sprite_ids if self.pyboy.botsupport_manager().sprite(sprite_id).on_screen]
+    
+        self.pacman_pos = np.mean(pacman_locs, axis=0)
+
+        ghost_sprite_ids = set([x[0] for x in self.pyboy.botsupport_manager().sprite_by_tile_identifier(ghosts_danger) if len(x)>0])
 
         if self.game_has_started:
-            self._level_progress_max = max(self.level_progress, self._level_progress_max)
-            end_score = self.score + self.time_left * 10
-            self.fitness = self.lives_left * 10000 + end_score + self._level_progress_max * 10
+            self.fitness = self.lives_left * 10000 + self.score + (self.score/self.high_score)*5000 + self.level*5000 - self.num_pellets_left*100 
 
     def set_lives_left(self, amount):
         """
