@@ -123,6 +123,9 @@ six = [310]
 seven = [311]
 eight = [312]
 nine = [313]
+empty_place = [320]
+
+score_identifier_map = {zero[0]:0, one[0]:1, two[0]:2, three[0]:3, four[0]:4, five[0]:5, six[0]:6, seven[0]:7, eight[0]:8, nine[0]:9, empty_place[0]:0}
 
 info_panel_icons = [lives_icon, first_level_icon, second_level_icon, third_level_icon, fourth_level_icon, fifth_level_icon, sixth_level_icon, seventh_level_icon, eighth_level_icon, ninth_level_icon, tenth_level_icon, eleventh_level_icon, twelfth_level_icon, thirteenth_level_icon, remaining_level_icon]
 
@@ -170,11 +173,15 @@ HIGH_SCORE_THOUSANDS=(1,2)
 HIGH_SCORE_TEN_THOUSANDS=(1,1)
 HIGH_SCORE_HUNDRED_THOUSANDS=(1,0)
 
+HIGH_SCORE_PLACES = [HIGH_SCORE_TENS, HIGH_SCORE_HUNDREDS, HIGH_SCORE_THOUSANDS, HIGH_SCORE_TEN_THOUSANDS, HIGH_SCORE_HUNDRED_THOUSANDS]
+
 CURRENT_SCORE_TENS=(4,4)
 CURRENT_SCORE_HUNDREDS=(4,3)
 CURRENT_SCORE_THOUSANDS=(4,2)
 CURRENT_SCORE_TEN_THOUSANDS=(4,1)
 CURRENT_SCORE_HUNDRED_THOUSANDS=(4,0)
+
+CURRENT_SCORE_PLACES = [CURRENT_SCORE_TENS, CURRENT_SCORE_HUNDREDS, CURRENT_SCORE_THOUSANDS, CURRENT_SCORE_TEN_THOUSANDS, CURRENT_SCORE_HUNDRED_THOUSANDS]
 
 TWO_LIVES_LEFT=(14, 2)
 ONE_LIFE_LEFT=(14, 0)
@@ -228,7 +235,11 @@ class GameWrapperPacMan(PyBoyGameWrapper):
 
         level_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*level_loc[::-1]) for level_loc in LEVELS if self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*level_loc[::-1])!=320]
         self.level = len(level_identifiers)
-        
+
+        score_place_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*score_loc[::-1]) for score_loc in CURRENT_SCORE_PLACES[::-1]]
+
+        self.score = np.sum(np.array([score_identifier_map[ti] for ti in score_place_identifiers])*[10000, 1000, 100, 10, 1])*10
+
         self.coins = self._sum_number_on_screen(9, 1, 2, blank, -256)
         self.lives_left = _bcm_to_dec(self.pyboy.get_memory_value(ADDR_LIVES_LEFT))
         self.score = self._sum_number_on_screen(0, 1, 6, blank, -256)
