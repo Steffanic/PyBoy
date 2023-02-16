@@ -169,7 +169,6 @@ for i, tile_list in enumerate(compressed_list):
     for tile in tile_list:
         tiles_compressed[tile] = i + 1
 
-np_in_mario_tiles = np.vectorize(lambda x: x in base_scripts)
 
 # Hard code the window tilemap locations for some things
 HIGH_SCORE_TENS=(1,4)
@@ -199,6 +198,10 @@ LEVEL_FOUR = (9,3)
 
 LEVELS = [LEVEL_ONE, LEVEL_TWO, LEVEL_THREE, LEVEL_FOUR]
 
+# Memory locations of what I have been able to find 
+# These are all in the range 0xC000-0xDFFF
+LIVES_ADDRESS = 0xD641
+LEVEL_ADDRESS = 0XD669
 def _bcm_to_dec(value):
     return (value >> 4) * 10 + (value & 0x0F)
 
@@ -232,6 +235,9 @@ class GameWrapperPacMan(PyBoyGameWrapper):
         self.num_pellets_left = 0
         """The number of pellets left in the level"""
 
+        self.fruit_onscreen = False
+        """Whether or not a fruit is onscreen"""
+
         self.pacman_pos = (0,0)
         """Pacman's position in the game area"""
 
@@ -252,11 +258,12 @@ class GameWrapperPacMan(PyBoyGameWrapper):
         self._tile_cache_invalid = True
         self._sprite_cache_invalid = True
 
-        level_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*level_loc[::-1]) for level_loc in LEVELS if self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*level_loc[::-1])!=320]
-        self.level = len(level_identifiers)
+        #level_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*level_loc[::-1]) for level_loc in LEVELS if self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*level_loc[::-1])!=320]
+        self.level = self.pyboy.get_memory_value(LEVEL_ADDRESS)
 
-        lives_left_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*lives_loc[::-1]) for lives_loc in [TWO_LIVES_LEFT, ONE_LIFE_LEFT] if self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*lives_loc[::-1])!=320]
-        self.lives_left = len(lives_left_identifiers) 
+        # Shows lives left using the on screen icons
+        #lives_left_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*lives_loc[::-1]) for lives_loc in [TWO_LIVES_LEFT, ONE_LIFE_LEFT] if self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*lives_loc[::-1])!=320]
+        self.lives_left = self.pyboy.get_memory_value(LIVES_ADDRESS)
 
         score_place_identifiers = [self.pyboy.botsupport_manager().tilemap_window().tile_identifier(*score_loc[::-1]) for score_loc in CURRENT_SCORE_PLACES[::-1]]
 
@@ -269,12 +276,18 @@ class GameWrapperPacMan(PyBoyGameWrapper):
         pellet_locations = self.pyboy.botsupport_manager().tilemap_background().search_for_identifiers(pellet)
         self.num_pellets_left = len(pellet_locations[0])+len(pellet_locations[1])
 
+        fruit_sprite_ids = set([x[0] for x in self.pyboy.botsupport_manager().sprite_by_tile_identifier(fruit) if len(x)>0])
+        self.fruit_onscreen = len(fruit_sprite_ids)>0
+
         pacman_sprite_ids = set([x[0] for x in self.pyboy.botsupport_manager().sprite_by_tile_identifier(pacman_alive) if len(x)>0])
         pacman_locs = [(self.pyboy.botsupport_manager().sprite(sprite_id).x, self.pyboy.botsupport_manager().sprite(sprite_id).y) for sprite_id in pacman_sprite_ids if self.pyboy.botsupport_manager().sprite(sprite_id).on_screen]
     
         self.pacman_pos = np.mean(pacman_locs, axis=0)
 
         ghost_sprite_ids = set([x[0] for x in self.pyboy.botsupport_manager().sprite_by_tile_identifier(ghosts_danger) if len(x)>0])
+        ghost_tile_locs = [(self.pyboy.botsupport_manager().sprite(sprite_id).x, self.pyboy.botsupport_manager().sprite(sprite_id).y) for sprite_id in ghost_sprite_ids if self.pyboy.botsupport_manager().sprite(sprite_id).on_screen]
+        ghost_locs = np.array(ghost_tile_locs).reshape(-1, 4, len(ghost_tile_locs)//4)
+        self.ghosts_pos = np.mean(ghost_locs, axis=1)
 
         if self.game_has_started:
             self.fitness = self.lives_left * 10000 + self.score + (self.score/self.high_score)*5000 + self.level*5000 - self.num_pellets_left*100 
@@ -292,11 +305,8 @@ class GameWrapperPacMan(PyBoyGameWrapper):
             logger.warning("Please call set_lives_left after starting the game")
 
         if 0 <= amount <= 99:
-            tens = amount // 10
-            ones = amount % 10
-            self.pyboy.set_memory_value(ADDR_LIVES_LEFT, (tens << 4) | ones)
-            self.pyboy.set_memory_value(ADDR_LIVES_LEFT_DISPLAY, tens)
-            self.pyboy.set_memory_value(ADDR_LIVES_LEFT_DISPLAY + 1, ones)
+            self.pyboy.set_memory_value(LIVES_ADDRESS, amount)
+            # TODO: figure out how to get icons to appear without having to die first
         else:
             logger.error(f"{amount} is out of bounds. Only values between 0 and 99 allowed.")
 
@@ -322,17 +332,13 @@ class GameWrapperPacMan(PyBoyGameWrapper):
 
     def start_game(self, timer_div=None, world_level=None, unlock_level_select=False):
         """
-        Call this function right after initializing PyBoy. This will start a game in world 1-1 and give back control on
+        Call this function right after initializing PyBoy. This will start a game on level 1 and give back control on
         the first frame it's possible.
 
         The state of the emulator is saved, and using `reset_game`, you can get back to this point of the game
         instantly.
 
-        The game has 4 major worlds with each 3 level. to start at a specific world and level, provide it as a tuple for
-        the optional keyword-argument `world_level`.
-
-        If you're not using the game wrapper for unattended use, you can unlock the level selector for the main menu.
-        Enabling the selector, will make this function return before entering the game.
+        The game has an unlimited number of levels, ideally you would be able to pick one ot start in.
 
         Kwargs:
             timer_div (int): Replace timer's DIV register with this value. Use `None` to randomize.
